@@ -2,7 +2,7 @@
 Roadmap:
 - (completed) Load txt file and ask question in console 
 - (completed) Check question correctness and determine score
-- Re-ask incorrect questions mode
+- (completed) Re-ask incorrect questions mode
 - (completed) question set (txt file) selector
 - (completed) List of all available question sets
 - Store highscores
@@ -10,8 +10,7 @@ Roadmap:
 - (completed) Counter for answered, correct, incorrect, remaining
 - (completed) GUI
 - (completed) Set editor
-- All questions mode
-- randomized question mode
+- (completed) randomized question mode
 
 Blueprint:
 main
@@ -21,39 +20,53 @@ questions
 '''
 
 import csv
+import random
+import time
 import tkinter as tk
+import tkinter.ttk as ttk
 from pathlib import Path
 
 class Questions:
     def __init__(self):
-        self.data = []
-        self.index = 0
-        self.correct = 0
-        self.incorrect = 0
-        self.remaining = 0
-        self.path = Path('Questions/')
+        self.data       = []
+        self.dataCurr   = []
+        self.index      = []
+        self.correct    = []
+        self.incorrect  = []
+        self.remaining  = 0
+        self.startTime  = 0
+        self.path       = Path('Questions/')
 
     def loadSet(self,setName):
         with open(self.path / setName,'r',encoding='utf8',newline='') as file:
             self.data = list(csv.reader(file,delimiter=','))
+        self.dataCurr = self.data
     
     def reset(self):
-        self.index = 0
-        self.correct = 0
-        self.incorrect = 0 
-        self.remaining = len(self.data)
+        self.index      = list(range(0,len(self.data)))
+        self.correct    = []
+        self.incorrect  = []
+        self.remaining  = len(self.data)
+
+    def randomizeSet(self):
+        order = []
+        for i in range(0,len(self.data)):
+            randint = random.randint(0,len(self.index)-1)
+            order.append(self.index[randint])
+            self.index.pop(randint)
+        self.index = order
     
     def getCurrentQ(self):
-        return self.data[self.index][0]
+        return self.data[self.index[0]][0]
     
     def checkAnswer(self,answer):
-        if answer == self.data[self.index][1]:
-            self.correct += 1
+        if answer == self.data[self.index[0]][1]:
+            self.correct.append(self.data[self.index[0]])
         else:
-            self.incorrect += 1
+            self.incorrect.append(self.data[self.index[0]])
 
         self.remaining -= 1
-        self.index += 1
+        self.index.pop(0)
     
     def writeData(self,setName):
         with open(self.path / setName,'w',encoding='utf8',newline='') as file:
@@ -71,45 +84,61 @@ class QuizApp(tk.Tk):
         tk.Tk.__init__(self)
         self.questions = Questions()
         self.currentSet = tk.StringVar()
-        self.availableSets = ['L6.txt']
-        #self.geometry('400x300')
+        self.availableSets = ['L5.txt','L6.txt','L7.txt']
+        self.geometry('400x300')
         self.title('Japanese Quiz')
-        self.columnconfigure(0,weight=3)
-        self.columnconfigure(1,weight=1)
         container = tk.Frame(self)
         container.pack(fill='both',expand=True)
         self.frames = {}
-        pages = [MainMenu,SetUp,InGame,Results,Edit]
+        self.pages = [MainMenu,SetUp,InGame,Results,Edit]
         
-        for F in pages:
+        for F in self.pages:
             frame = F(container,self)
             self.frames[F] = frame
-            frame.grid(row=0,column=0,sticky='nsew')
+            frame.pack(expand=True)
 
         self.showFrame(MainMenu)
     
     def showFrame(self,container):
-        frame = self.frames[container]
-        frame.tkraise()
+        for page in self.pages:
+            self.frames[page].pack_forget()
+        self.frames[container].pack(expand=True)
     
-    def startGame(self):
+    def startGame(self,newGame=True):
+        if newGame:
+            self.questions.data = self.questions.dataCurr
+            self.frames[Results].timeResult.set('')
+            if self.frames[SetUp].timed.get():
+                self.questions.startTime = time.time()
         self.questions.reset()
+        if self.frames[SetUp].randomize.get():
+            self.questions.randomizeSet()
         self.frames[InGame].updateStats()
         self.showFrame(InGame)
+    
+    def endGame(self):
+        if self.frames[SetUp].learnmode.get() and len(self.questions.incorrect):
+            self.questions.data = self.questions.incorrect
+            self.startGame(False)
+        else:
+            self.questions.data = self.questions.dataCurr
+            if self.frames[SetUp].timed.get():
+                self.frames[Results].timeResult.set(str(time.time()-self.questions.startTime))
+            self.showFrame(Results)
 
 class MainMenu(tk.Frame):
     def __init__(self,parent,control):
         tk.Frame.__init__(self,parent)
         self.control = control
-        scrollBar = tk.Scrollbar(self)
+        scrollBar = ttk.Scrollbar(self)
         questionSets = tk.Listbox(self,yscrollcommand=scrollBar.set)
         
         for set in control.availableSets:
             questionSets.insert('end',set)
 
-        playBtn = tk.Button(self,text='Play',command=lambda:self.next(questionSets.curselection(),SetUp))
-        editBtn = tk.Button(self,text='Edit',command=lambda:self.next(questionSets.curselection(),Edit))
-        exitBtn = tk.Button(self,text='Exit')
+        playBtn = ttk.Button(self,text='Play',command=lambda:self.next(questionSets.curselection(),SetUp))
+        editBtn = ttk.Button(self,text='Edit',command=lambda:self.next(questionSets.curselection(),Edit))
+        exitBtn = ttk.Button(self,text='Exit',command=lambda:exit())
 
         questionSets.grid(column=0,row=0,rowspan=3,padx=10,pady=10)
         playBtn.grid(column=1,row=0,padx=10,pady=10)
@@ -129,14 +158,17 @@ class MainMenu(tk.Frame):
 class SetUp(tk.Frame):
     def __init__(self,parent,control):
         tk.Frame.__init__(self,parent)
-        self.control = control
+        self.control    = control
+        self.randomize  = tk.BooleanVar()
+        self.learnmode  = tk.BooleanVar()
+        self.timed      = tk.BooleanVar()
 
-        learnBtn        = tk.Checkbutton(self,text="Learn Mode")
-        randomizeBtn    = tk.Checkbutton(self,text="Randomize Set")
-        timedBtn        = tk.Checkbutton(self,text="Timed")
-        setLabel        = tk.Label(self,textvariable=control.currentSet)
-        startBtn        = tk.Button(self,text='Start',command=lambda:control.startGame())
-        backBtn         = tk.Button(self,text='Back',command=lambda:control.showFrame(MainMenu))
+        learnBtn        = ttk.Checkbutton(self,text="Learn Mode",variable=self.learnmode)
+        randomizeBtn    = ttk.Checkbutton(self,text="Randomize Set",variable=self.randomize)
+        timedBtn        = ttk.Checkbutton(self,text="Timed",variable=self.timed)
+        setLabel        = ttk.Label(self,textvariable=control.currentSet)
+        startBtn        = ttk.Button(self,text='Start',command=lambda:control.startGame())
+        backBtn         = ttk.Button(self,text='Back',command=lambda:control.showFrame(MainMenu))
 
         learnBtn.grid(column=0,row=0,padx=10,pady=10)
         randomizeBtn.grid(column=0,row=1,padx=10,pady=10)
@@ -154,13 +186,13 @@ class InGame(tk.Frame):
         self.remaining  = tk.IntVar(value=0)
         self.question   = tk.StringVar()
 
-        correctLabel    = tk.Label(self,textvariable=self.correct)
-        incorrectLabel  = tk.Label(self,textvariable=self.incorrect)
-        remainingLabel  = tk.Label(self,textvariable=self.remaining)
-        questionLabel   = tk.Label(self,textvariable=self.question)
-        answerEntry     = tk.Entry(self)
-        enterButton     = tk.Button(self,text='Enter',command=lambda:self.enter(answerEntry.get()))
-        backButton      = tk.Button(self,text='Back',command=lambda:control.showFrame(SetUp))
+        correctLabel    = ttk.Label(self,textvariable=self.correct)
+        incorrectLabel  = ttk.Label(self,textvariable=self.incorrect)
+        remainingLabel  = ttk.Label(self,textvariable=self.remaining)
+        questionLabel   = ttk.Label(self,textvariable=self.question)
+        answerEntry     = ttk.Entry(self)
+        enterButton     = ttk.Button(self,text='Enter',command=lambda:self.enter(answerEntry))
+        backButton      = ttk.Button(self,text='Back',command=lambda:control.showFrame(SetUp))
 
         correctLabel.grid(column=0,row=0,padx=10,pady=10)
         incorrectLabel.grid(column=2,row=0,padx=10,pady=10)
@@ -170,15 +202,19 @@ class InGame(tk.Frame):
         enterButton.grid(column=2,row=2,padx=10,pady=10)
         backButton.grid(column=0,row=2,padx=10,pady=10)
 
-    def enter(self,answer):
+        control.bind('<Return>',lambda event:self.enter(answerEntry))
+
+    def enter(self,answerEntry):
+        answer = answerEntry.get()
+        answerEntry.delete(0,'end')
         self.control.questions.checkAnswer(answer)
         self.updateStats()
         if self.control.questions.remaining <= 0:
-            self.control.showFrame(Results)
+            self.control.endGame()
     
     def updateStats(self):
-        self.correct.set(self.control.questions.correct)
-        self.incorrect.set(self.control.questions.incorrect)
+        self.correct.set(len(self.control.questions.correct))
+        self.incorrect.set(len(self.control.questions.incorrect))
         self.remaining.set(self.control.questions.remaining)
         if self.control.questions.remaining > 0:
             self.question.set(self.control.questions.getCurrentQ())
@@ -186,30 +222,37 @@ class InGame(tk.Frame):
 class Results(tk.Frame):
     def __init__(self,parent,control):
         tk.Frame.__init__(self,parent)
-        correctLabel    = tk.Label(self,textvariable=control.frames[InGame].correct)
-        incorrectLabel  = tk.Label(self,textvariable=control.frames[InGame].incorrect)
-        startButton     = tk.Button(self,text='Start',command=lambda:control.startGame())
-        backButton      = tk.Button(self,text='Back',command=lambda:control.showFrame(SetUp))
+        self.timeResult      = tk.StringVar()
 
-        correctLabel.grid(column=0,row=1,padx=10,pady=10)
-        incorrectLabel.grid(column=0,row=2,padx=10,pady=10)
-        startButton.grid(column=1,row=1,padx=10,pady=10)
-        backButton.grid(column=1,row=2,padx=10,pady=10)
+        correctText     = ttk.Label(self,text='Correct')
+        incorrectText   = ttk.Label(self,text='Incorrect')
+        correctLabel    = ttk.Label(self,textvariable=control.frames[InGame].correct)
+        incorrectLabel  = ttk.Label(self,textvariable=control.frames[InGame].incorrect)
+        timerLabel      = ttk.Label(self,textvariable=self.timeResult)
+        startButton     = ttk.Button(self,text='Start',command=lambda:control.startGame())
+        backButton      = ttk.Button(self,text='Back',command=lambda:control.showFrame(SetUp))
+
+        correctText.grid(column=0,row=1,padx=10,pady=10)
+        incorrectText.grid(column=2,row=1,padx=10,pady=10)
+        correctLabel.grid(column=1,row=1,padx=10,pady=10)
+        incorrectLabel.grid(column=3,row=1,padx=10,pady=10)
+        timerLabel.grid(column=1,row=0,columnspan=2,padx=10,pady=10)
+        startButton.grid(column=0,row=2,columnspan=2,padx=10,pady=10)
+        backButton.grid(column=2,row=2,columnspan=2,padx=10,pady=10)
 
 class Edit(tk.Frame):
     def __init__(self,parent,control):
         tk.Frame.__init__(self,parent)
         self.control = control
 
-        scrollBar = tk.Scrollbar(self)
-        self.set = tk.Listbox(self,yscrollcommand=scrollBar)
-        
-        deleteButton    = tk.Button(self,text='Delete',command=lambda:self.delete(self.set.curselection()))
-        addButton       = tk.Button(self,text='Add',command=lambda:self.add([questionEntry.get(),answerEntry.get()]))
-        saveButton      = tk.Button(self,text='Save',command=lambda:self.save())
-        backButton      = tk.Button(self,text='Back',command=lambda:self.back())
-        answerEntry     = tk.Entry(self)
-        questionEntry   = tk.Entry(self)
+        scrollBar       = ttk.Scrollbar(self)
+        self.set        = tk.Listbox(self,yscrollcommand=scrollBar)
+        deleteButton    = ttk.Button(self,text='Delete',command=lambda:self.delete(self.set.curselection()))
+        addButton       = ttk.Button(self,text='Add',command=lambda:self.add([questionEntry.get(),answerEntry.get()]))
+        saveButton      = ttk.Button(self,text='Save',command=lambda:self.save())
+        backButton      = ttk.Button(self,text='Back',command=lambda:self.back())
+        answerEntry     = ttk.Entry(self)
+        questionEntry   = ttk.Entry(self)
 
         self.set.grid(column=0,row=0,rowspan=4,padx=10,pady=10)
         answerEntry.grid(column=1,row=0,padx=10,pady=10)

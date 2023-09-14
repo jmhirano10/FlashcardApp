@@ -11,6 +11,8 @@ Roadmap:
 - (completed) GUI
 - (completed) Set editor
 - (completed) randomized question mode
+- (completed) When wrong insta restart
+- Show answer on incorrect entry for (n seconds)
 
 Blueprint:
 main
@@ -60,13 +62,16 @@ class Questions:
         return self.data[self.index[0]][0]
     
     def checkAnswer(self,answer):
+        corAnswer = None
         if answer == self.data[self.index[0]][1]:
             self.correct.append(self.data[self.index[0]])
         else:
             self.incorrect.append(self.data[self.index[0]])
+            corAnswer = self.data[self.index[0]][1]
 
         self.remaining -= 1
         self.index.pop(0)
+        return corAnswer
     
     def writeData(self,setName):
         with open(self.path / setName,'w',encoding='utf8',newline='') as file:
@@ -84,13 +89,13 @@ class QuizApp(tk.Tk):
         tk.Tk.__init__(self)
         self.questions = Questions()
         self.currentSet = tk.StringVar()
-        self.availableSets = ['L5.txt','L6.txt','L7.txt']
-        self.geometry('400x300')
+        self.availableSets = ['L5.txt','L6.txt','L7.txt','L8.txt','L9.txt','K.txt','K1.txt','K2.txt','K3.txt','K4.txt','K5.txt','K6.txt','K7.txt','K8.txt','K9.txt','KNew.txt','Phone.txt','PhoneVerb.txt','NewWords.txt','Phrases.txt']
+        self.geometry('600x400')
         self.title('Japanese Quiz')
         container = tk.Frame(self)
         container.pack(fill='both',expand=True)
         self.frames = {}
-        self.pages = [MainMenu,SetUp,InGame,Results,Edit]
+        self.pages = [MainMenu,SetUp,InGame,Results,Edit,Answer]
         
         for F in self.pages:
             frame = F(container,self)
@@ -103,6 +108,7 @@ class QuizApp(tk.Tk):
         for page in self.pages:
             self.frames[page].pack_forget()
         self.frames[container].pack(expand=True)
+        
     
     def startGame(self,newGame=True):
         if newGame:
@@ -113,6 +119,7 @@ class QuizApp(tk.Tk):
         self.questions.reset()
         if self.frames[SetUp].randomize.get():
             self.questions.randomizeSet()
+        self.frames[InGame].noFail = self.frames[SetUp].noFail.get()
         self.frames[InGame].updateStats()
         self.showFrame(InGame)
     
@@ -125,6 +132,20 @@ class QuizApp(tk.Tk):
             if self.frames[SetUp].timed.get():
                 self.frames[Results].timeResult.set(str(time.time()-self.questions.startTime))
             self.showFrame(Results)
+    
+    def showAnswer(self,answer):
+        self.frames[Answer].corAnswer.set(answer)
+        self.showFrame(Answer)
+    
+    def resumeGame(self):
+        self.frames[InGame].updateStats()
+        if self.frames[InGame].noFail:
+            if len(self.questions.incorrect) > 0:
+                self.startGame()
+        if self.questions.remaining <= 0:
+            self.endGame()
+        else:
+            self.showFrame(InGame)
 
 class MainMenu(tk.Frame):
     def __init__(self,parent,control):
@@ -159,10 +180,12 @@ class SetUp(tk.Frame):
     def __init__(self,parent,control):
         tk.Frame.__init__(self,parent)
         self.control    = control
+        self.noFail     = tk.BooleanVar()
         self.randomize  = tk.BooleanVar()
         self.learnmode  = tk.BooleanVar()
         self.timed      = tk.BooleanVar()
 
+        noFailBtn       = ttk.Checkbutton(self,text='No Incorrect Answers',variable=self.noFail)
         learnBtn        = ttk.Checkbutton(self,text="Learn Mode",variable=self.learnmode)
         randomizeBtn    = ttk.Checkbutton(self,text="Randomize Set",variable=self.randomize)
         timedBtn        = ttk.Checkbutton(self,text="Timed",variable=self.timed)
@@ -170,17 +193,19 @@ class SetUp(tk.Frame):
         startBtn        = ttk.Button(self,text='Start',command=lambda:control.startGame())
         backBtn         = ttk.Button(self,text='Back',command=lambda:control.showFrame(MainMenu))
 
-        learnBtn.grid(column=0,row=0,padx=10,pady=10)
-        randomizeBtn.grid(column=0,row=1,padx=10,pady=10)
-        timedBtn.grid(column=0,row=2,padx=10,pady=10)
-        setLabel.grid(column=1,row=0,padx=10,pady=10)
-        startBtn.grid(column=1,row=1,padx=10,pady=10)
-        backBtn.grid(column=1,row=2,padx=10,pady=10)
+        noFailBtn.grid(column=0,row=0,columnspan=2,padx=10,pady=10)
+        learnBtn.grid(column=0,row=1,padx=10,pady=10)
+        randomizeBtn.grid(column=0,row=2,padx=10,pady=10)
+        timedBtn.grid(column=0,row=3,padx=10,pady=10)
+        setLabel.grid(column=1,row=1,padx=10,pady=10)
+        startBtn.grid(column=1,row=2,padx=10,pady=10)
+        backBtn.grid(column=1,row=3,padx=10,pady=10)
 
 class InGame(tk.Frame):
     def __init__(self,parent,control):
         tk.Frame.__init__(self,parent)
         self.control    = control
+        self.noFail     = False
         self.correct    = tk.IntVar(value=0)
         self.incorrect  = tk.IntVar(value=0)
         self.remaining  = tk.IntVar(value=0)
@@ -189,7 +214,7 @@ class InGame(tk.Frame):
         correctLabel    = ttk.Label(self,textvariable=self.correct)
         incorrectLabel  = ttk.Label(self,textvariable=self.incorrect)
         remainingLabel  = ttk.Label(self,textvariable=self.remaining)
-        questionLabel   = ttk.Label(self,textvariable=self.question)
+        questionLabel   = ttk.Label(self,textvariable=self.question,font=('Arial', 30))
         answerEntry     = ttk.Entry(self)
         enterButton     = ttk.Button(self,text='Enter',command=lambda:self.enter(answerEntry))
         backButton      = ttk.Button(self,text='Back',command=lambda:control.showFrame(SetUp))
@@ -207,10 +232,11 @@ class InGame(tk.Frame):
     def enter(self,answerEntry):
         answer = answerEntry.get()
         answerEntry.delete(0,'end')
-        self.control.questions.checkAnswer(answer)
-        self.updateStats()
-        if self.control.questions.remaining <= 0:
-            self.control.endGame()
+        isCorrect = self.control.questions.checkAnswer(answer)
+        if isCorrect:
+            self.control.showAnswer(isCorrect)
+        else:
+            self.control.resumeGame()
     
     def updateStats(self):
         self.correct.set(len(self.control.questions.correct))
@@ -219,10 +245,21 @@ class InGame(tk.Frame):
         if self.control.questions.remaining > 0:
             self.question.set(self.control.questions.getCurrentQ())
 
+class Answer(tk.Frame):
+    def __init__(self,parent,control):
+        tk.Frame.__init__(self,parent)
+        self.corAnswer  = tk.StringVar()
+
+        corAnsLabel     = ttk.Label(self,textvariable=self.corAnswer)
+
+        corAnsLabel.grid(column=0,row=0)
+
+        control.bind('<Control_L>',lambda event:control.resumeGame())
+
 class Results(tk.Frame):
     def __init__(self,parent,control):
         tk.Frame.__init__(self,parent)
-        self.timeResult      = tk.StringVar()
+        self.timeResult = tk.StringVar()
 
         correctText     = ttk.Label(self,text='Correct')
         incorrectText   = ttk.Label(self,text='Incorrect')
@@ -280,5 +317,6 @@ class Edit(tk.Frame):
         self.set.delete(0,'end')
 
 if __name__ == '__main__':
+    #ctypes.windll.shcore.SetProcessDpiAwareness(1)
     app = QuizApp()
     app.mainloop()
